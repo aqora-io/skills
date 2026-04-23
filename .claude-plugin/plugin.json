@@ -1,0 +1,23 @@
+{
+  "name": "aqora-skills",
+  "version": "0.1.0",
+  "description": "Agent skills for building quantum computing workflows on aqora.io and beyond. Ships workspace pair-programming today, with qiskit, pennylane, circuit optimization, and simulator orchestration on the roadmap.",
+  "author": {
+    "name": "Aqora",
+    "email": "hello@aqora.io",
+    "url": "https://aqora.io"
+  },
+  "homepage": "https://github.com/aqora-io/skills",
+  "repository": "https://github.com/aqora-io/skills",
+  "license": "MIT",
+  "keywords": [
+    "quantum-computing",
+    "quantum",
+    "qiskit",
+    "pennylane",
+    "aqora",
+    "marimo",
+    "agent-skills",
+    "claude-code"
+  ]
+}
