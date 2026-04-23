@@ -8,9 +8,16 @@ Guidance for Claude Code (and any agent with project-level instructions) when wo
 
 Read [README.md](README.md) for the user-facing story and [CONTRIBUTING.md](CONTRIBUTING.md) for the full authoring rules. This file highlights what matters specifically when Claude is editing the repo.
 
-## Writing style rules
+## Non-negotiable writing policy
 
-- Never use em dashes or en dashes in any file (markdown, code comments, commit messages, PR descriptions). Do not substitute them with hyphens or double hyphens either. Use commas, periods, colons, semicolons, or parentheses.
+**Never use em dashes (U+2014) or en dashes (U+2013) in any file authored through this repository.** This includes markdown bodies, code comments, YAML frontmatter, JSON descriptions, commit messages, PR titles and descriptions, and issue text. Do **not** substitute them with hyphens (`-`), double hyphens (`--`), or any other dash-like character. Use proper punctuation instead: commas, periods, colons, semicolons, or parentheses. If a sentence reads like it wants an em dash, it usually wants to be two sentences or a colon.
+
+Hyphens inside compound words (`long-running`, `well-structured`) and command-line flags (`--workspace`, `-c`) are fine. The ban is specifically on dash-as-punctuation substitutes.
+
+This is enforced by review, not by CI, so be careful. Run `LC_ALL=C grep -rnP '[\x{2013}\x{2014}]' --include='*.md' --include='*.sh' --include='*.json' --include='*.yml' .` before pushing to confirm clean.
+
+## Other writing style rules
+
 - Keep `SKILL.md` bodies under 500 lines. Push depth into `references/*.md`.
 - Do not reference Claude-Code-specific UX (`/plugin`, `TaskCreate`, subagents) in the body of a skill. If such guidance is unavoidable, put it in a dedicated `references/claude-code.md`.
 - Prefer imperative sentences in skill bodies. Explain the why in one line before a rule rather than stacking all-caps MUSTs.

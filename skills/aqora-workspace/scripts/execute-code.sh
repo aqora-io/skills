@@ -21,7 +21,7 @@ set -euo pipefail
 
 # Optional call logging
 if [[ -n "${EXECUTE_CODE_LOG:-}" ]]; then
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$EXECUTE_CODE_LOG"
+  date -u +%Y-%m-%dT%H:%M:%SZ >> "$EXECUTE_CODE_LOG"
 fi
 
 aqora_api="${AQORA_API_URL:-https://aqora.io}"
