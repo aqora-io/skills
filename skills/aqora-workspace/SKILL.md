@@ -29,7 +29,10 @@ If neither is present, the scripts fail with a clear error. See [references/auth
 
 ### Dependencies
 
-The scripts need `bash`, `curl`, and `jq` on your `PATH`. No Python or marimo installation is needed locally, since all code runs in the remote kernel.
+- `list-workspaces.sh` needs `bash`, `curl`, and `jq` on your `PATH`.
+- `execute-code.py` needs Python 3.10+ plus `httpx` and `websockets`. If `uv` is installed (recommended), the script is fully self-contained thanks to PEP 723 inline metadata: just run it. Without `uv`, run `pip install httpx websockets` once.
+
+No marimo installation is needed locally: all code runs in the remote kernel.
 
 ## Operations
 
@@ -38,10 +41,10 @@ Two core operations: list workspaces and execute code.
 | Operation | Script |
 | :-------- | :----- |
 | List workspaces | `bash scripts/list-workspaces.sh` |
-| Execute code (inline) | `bash scripts/execute-code.sh --workspace <id> -c "code"` |
-| Execute code (multiline) | `bash scripts/execute-code.sh --workspace <id> <<'EOF' ... EOF` |
-| Execute code (from file) | `bash scripts/execute-code.sh --workspace <id> script.py` |
-| Execute code (by URL) | `bash scripts/execute-code.sh --url https://... -c "code"` |
+| Execute code (inline) | `scripts/execute-code.py --workspace <id> -c "code"` |
+| Execute code (multiline) | `scripts/execute-code.py --workspace <id> <<'EOF' ... EOF` |
+| Execute code (from file) | `scripts/execute-code.py --workspace <id> script.py` |
+| Execute code (by URL) | `scripts/execute-code.py --url https://... -c "code"` |
 
 ### Listing Workspaces
 
@@ -55,7 +58,9 @@ bash scripts/list-workspaces.sh --id ws_abc --url-only
 
 ### Executing Code
 
-Every `execute-code.sh` call runs inside the remote marimo kernel. All cell variables are in scope. `print(df.head())` just works. Nothing you define persists between calls, but you can freely introspect notebook state: inspect variables, test snippets, check types and shapes. Use this to explore and validate before committing anything to the notebook, then create cells to persist state and make results visible to the user.
+Every `execute-code.py` call runs inside the remote marimo kernel. All cell variables are in scope. `print(df.head())` just works. Nothing you define persists between calls, but you can freely introspect notebook state: inspect variables, test snippets, check types and shapes. Use this to explore and validate before committing anything to the notebook, then create cells to persist state and make results visible to the user.
+
+Under the hood, `execute-code.py` opens a short-lived WebSocket to register a session with the runner, POSTs your code to the agent-only `/api/kernel/execute` endpoint, streams results back, and closes. Stdout from the kernel is mirrored to your stdout, stderr to your stderr. All of this is transparent from the skill's point of view: treat the script as "run this code, get its output."
 
 To mutate the notebook's dataflow graph, use `marimo._code_mode`:
 
@@ -110,6 +115,7 @@ Anywidget state (traitlets) lives outside marimo's reactive graph. To hook a wid
 - **Network round-trips matter.** Unlike a local marimo, every `execute-code.sh` call goes to aqora.io. Batch related operations into a single call when possible.
 - **Workspace sessions can be killed by the platform** for inactivity or resource limits. If execution starts failing with connection errors, check status with `list-workspaces.sh`. See [references/workspace-lifecycle.md](references/workspace-lifecycle.md).
 - **The user is watching live.** Cells appear in the user's browser as you create them. Work in small, reviewable steps. Do not dump a 200-line cell and expect trust.
+- **Every `execute-code.py` call is a full WebSocket plus HTTP round-trip.** The overhead is small per call but not zero. Group related work into a single call when possible.
 
 ## References
 

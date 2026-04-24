@@ -4,7 +4,7 @@
 
 ### Network latency adds up
 
-Every `execute-code.sh` call is an HTTPS round-trip to aqora.io. On a slow link, twenty small calls cost more than one batched call. Batch related work into a single execution when possible.
+Every `execute-code.py` call is a WebSocket handshake plus an HTTPS round-trip to aqora.io. On a slow link, twenty small calls cost more than one batched call. Batch related work into a single execution when possible.
 
 ### Connection reset mid-operation
 
@@ -38,17 +38,22 @@ Use `from qiskit.qasm2 import dumps as qasm2_dumps` instead. The forthcoming `qu
 
 ### Do not pass tokens as flags
 
-Command-line flags appear in `ps aux`. Pass tokens via `AQORA_TOKEN` or let the scripts fetch them from the aqora CLI credential store.
+Command-line flags appear in `ps aux`. Pass tokens via `AQORA_TOKEN`, not `--token`.
 
 ### Non-aqora URLs
 
-`execute-code.sh` warns when pointed at a host that is not `*.aqora.io` or a loopback address. A warning you did not expect is a signal to stop and investigate, not a prompt to dismiss.
+`execute-code.py` warns when pointed at a host that is not `*.aqora.io`, `*.aqora-internal.io`, or a loopback address. A warning you did not expect is a signal to stop and investigate, not a prompt to dismiss.
+
+### Token refresh
+
+The stored aqora access token has a short lifetime (roughly 24 hours). The scripts read the stored `access_token` directly and do not trigger refresh. If a call fails with `INVALID_AUTHORIZATION` or HTTP 401, run `aqora login` to mint a fresh one. A follow-up `aqora auth token` subcommand is being added to the CLI to handle refresh transparently.
 
 ## Scripts
 
-### `jq` is required
+### Dependencies
 
-Both scripts need `jq` for JSON handling. If `jq` is missing, installation varies by platform: `brew install jq` on macOS, `apt-get install jq` on Debian-family Linux, `choco install jq` on Windows.
+- `list-workspaces.sh`: needs `bash`, `curl`, `jq`. Install `jq` with `brew install jq` on macOS, `apt-get install jq` on Debian-family Linux, `choco install jq` on Windows.
+- `execute-code.py`: needs Python 3.10+ plus `httpx` and `websockets`. The recommended path is `uv` (which handles the deps via PEP 723 inline metadata): running `scripts/execute-code.py` just works. Without `uv`, run `pip install httpx websockets` once.
 
 ### Working directory does not matter
 
