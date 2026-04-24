@@ -9,12 +9,13 @@ The repo treats the platform (aqora workspaces) and the domain (quantum computin
 | Skill | Purpose |
 | :---- | :------ |
 | [`aqora-workspace`](skills/aqora-workspace/SKILL.md) | Pair-program inside a live aqora-hosted marimo workspace. List workspaces, execute code in the remote kernel, create and edit cells. The entry point for running quantum code on aqora. |
+| [`quantum`](skills/quantum/SKILL.md) | Build end-to-end quantum computing pipelines. Search aqora for simulators, optimizers, and algorithms; compose them across data loading, algorithm, circuit construction, optimization, error mitigation, execution, and analysis; fall back to inline qiskit/pennylane/pytket when no primitive exists. Pairs with `aqora-workspace` for execution. |
 
 ## Roadmap
 
-- **`quantum`**: qiskit and pennylane authoring, circuit construction and transformation, simulator selection (numpy, qiskit, pennylane), gate-count and depth optimization, QAOA and VQE templates. Pairs with `aqora-workspace` when the agent needs to run circuits on aqora infrastructure.
+- **Additional stage references** inside `quantum`: data loading, error mitigation, analysis (v0.2).
 - **Additional platform skills** as the aqora API grows: dataset management, competition submission, and workspace search.
-- **Additional domain skills** for adjacent quantum tooling as the ecosystem evolves.
+- **Additional domain skills** for adjacent tooling (AI/ML, simulation) as the ecosystem evolves.
 
 ## Installation
 
