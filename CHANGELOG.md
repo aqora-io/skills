@@ -9,6 +9,7 @@ All notable changes to this repository are documented here. Format follows [Keep
 - Initial repository scaffold.
 - `aqora-workspace` skill for pair-programming inside a live aqora-hosted marimo workspace.
 - `execute-code.py`: Python script that performs the full WebSocket plus HTTP handshake (GET runner page, scrape `Marimo-Server-Token`, open WebSocket to register `Marimo-Session-Id`, POST to `/api/kernel/execute`, stream SSE results). Runs code end to end in a live aqora workspace and mirrors stdout/stderr to the caller. Uses `uv` with PEP 723 inline dependencies (`httpx`, `websockets`) for zero-install when `uv` is available.
+- `quantum` skill v0.1: pipeline-first decision tree for quantum computing workflows on aqora. Seven-stage model (data, algorithm, circuit, optimization, mitigation, execution, analysis). Four stage references in v0.1 (algorithm, circuit, optimization, execution). Three convention references (tag taxonomy, interface contract, promotion checklist). One pattern reference (cross-workspace calls via `aqora_cli.notebook()`). Two scripts (`search-workspaces.sh`, `describe-workspace.sh`). Eight eval prompts. Pairs with `aqora-workspace` for execution; does not duplicate its functionality.
 - Validation script (`scripts/validate-skills.sh`) and GitHub Actions workflow.
 - Claude Code plugin and marketplace manifests.
 - CLAUDE.md for contributors using Claude Code.
