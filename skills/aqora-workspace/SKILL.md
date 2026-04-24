@@ -124,7 +124,16 @@ Anywidget state (traitlets) lives outside marimo's reactive graph. To hook a wid
 
 ## References
 
+### Mechanics
+
 - [references/auth.md](references/auth.md) handles credentials, token rotation, and custom deployments.
 - [references/workspace-lifecycle.md](references/workspace-lifecycle.md) covers starting, stopping, and session semantics.
 - [references/persisting-cells.md](references/persisting-cells.md) explains why `--persist` is required after cell mutations and what the appended epilogue does.
 - [references/gotchas.md](references/gotchas.md) collects remote-kernel and marimo-specific pitfalls.
+
+### Authoring
+
+- [references/notebook-structure.md](references/notebook-structure.md) shows the canonical cell ordering, naming conventions, and cell granularity.
+- [references/exported-functions.md](references/exported-functions.md) covers `@app.function` conventions, type annotations, docstrings, and the contract with `aqora_cli.notebook()`.
+- [references/visualization.md](references/visualization.md) covers `mo.md`, layout, interactive controls, plotting libraries, tables, and anywidget custom widgets.
+- [references/config-files.md](references/config-files.md) covers `pyproject.toml`, `.aqora/`, `marimo.toml`, PEP 723 inline script metadata, and environment variables.
