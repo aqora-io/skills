@@ -16,6 +16,7 @@ All notable changes to this repository are documented here. Format follows [Keep
 ### Changed
 
 - `execute-code.sh` pivoted to `execute-code.py`. The bash version could not complete the handshake because registering a `Marimo-Session-Id` requires a WebSocket connection. Pure `bash + curl` does not cover WebSockets. Python plus `websockets` does, and Python is already ubiquitous in the aqora ecosystem (the CLI itself is pip-installable).
+- `execute-code.py` gained a `--persist` flag. `marimo._code_mode` mutations (`create_cell`, `edit_cell`, `delete_cell`, `move_cell`) update the kernel's in-memory graph but do not write the notebook `.py` file. Without `--persist`, cell outputs broadcast to the browser while editors keep showing the stale file contents, leaving users with empty-looking cells. The flag appends a small epilogue that regenerates the file from kernel state. The `aqora-workspace` SKILL body now treats `--persist` as the default for any mutation call, with a new `references/persisting-cells.md` for depth and a matching entry in `references/gotchas.md`.
 
 ### Known issues
 
