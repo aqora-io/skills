@@ -45,6 +45,7 @@ Two core operations: list workspaces and execute code.
 | Execute code (multiline) | `scripts/execute-code.py --workspace <id> <<'EOF' ... EOF` |
 | Execute code (from file) | `scripts/execute-code.py --workspace <id> script.py` |
 | Execute code (by URL) | `scripts/execute-code.py --url https://... -c "code"` |
+| Mutate cells and save | `scripts/execute-code.py --workspace <id> --persist <<'EOF' ... EOF` |
 
 ### Listing Workspaces
 
@@ -62,15 +63,17 @@ Every `execute-code.py` call runs inside the remote marimo kernel. All cell vari
 
 Under the hood, `execute-code.py` opens a short-lived WebSocket to register a session with the runner, POSTs your code to the agent-only `/api/kernel/execute` endpoint, streams results back, and closes. Stdout from the kernel is mirrored to your stdout, stderr to your stderr. All of this is transparent from the skill's point of view: treat the script as "run this code, get its output."
 
-To mutate the notebook's dataflow graph, use `marimo._code_mode`:
+To mutate the notebook's dataflow graph, use `marimo._code_mode` and pass `--persist` to the script:
 
-```python
+```bash
+scripts/execute-code.py --workspace <id> --persist <<'EOF'
 import marimo._code_mode as cm
 
 async with cm.get_context() as ctx:
     cid = ctx.create_cell("x = 1")
     ctx.packages.add("pandas")
     ctx.run_cell(cid)
+EOF
 ```
 
 You **must** use `async with`. Without it, operations silently do nothing. All `ctx.*` methods are synchronous. They queue operations that flush on context exit. Do not `await` them.
@@ -80,6 +83,8 @@ The kernel supports top-level `await`, so use `async with` at the top level. Do 
 Cells are not auto-executed. `create_cell` and `edit_cell` are structural changes only. Call `run_cell` to queue execution.
 
 `code_mode` is the tested, safe API for notebook mutations. Prefer it for all structural changes. You have access to deeper marimo internals from the kernel, but treat that as a last resort.
+
+**Always pass `--persist` with mutation calls.** code_mode updates the kernel's in-memory graph but does not touch the workspace's `.py` file. Without `--persist`, the browser editor shows stale (often empty) cell editors even though outputs render, because the editor reads cell code from the file. The flag appends a small epilogue that regenerates the file from kernel state. See [references/persisting-cells.md](references/persisting-cells.md). Skip `--persist` for pure introspection or one-off execution, since there is nothing to save.
 
 ### First Step: Explore the API
 
@@ -96,7 +101,7 @@ Skip these and the workspace breaks.
 
 - **Install packages via `ctx.packages.add()`, not `uv add` or `pip`.** The code API handles kernel restarts and dependency resolution correctly.
 - **Custom widgets are anywidget.** Composed `mo.ui` is fine for simple forms and controls. For bespoke visuals, use anywidget with HTML, CSS, and JS.
-- **Never write to the workspace's `.py` file directly while a session is running.** The kernel owns it.
+- **Never write arbitrary content to the workspace's `.py` file directly while a session is running.** The kernel owns it. The `--persist` flag on `execute-code.py` is the one sanctioned writer: it regenerates the file from the kernel's current cell graph, so the two stay in sync.
 - **No temp-file dependencies in cells.** `pathlib.Path("/tmp/...")` inside a cell is a bug. Temp state does not survive between kernel restarts.
 - **Avoid empty cells.** Prefer `edit_cell` into existing empty cells over creating new ones. Clean up any cell that ends up empty after an edit.
 - **Deletions are destructive.** Deleting a cell removes its variables from kernel memory. Restoring means recreating the cell and re-running it and its dependents.
@@ -121,4 +126,5 @@ Anywidget state (traitlets) lives outside marimo's reactive graph. To hook a wid
 
 - [references/auth.md](references/auth.md) handles credentials, token rotation, and custom deployments.
 - [references/workspace-lifecycle.md](references/workspace-lifecycle.md) covers starting, stopping, and session semantics.
+- [references/persisting-cells.md](references/persisting-cells.md) explains why `--persist` is required after cell mutations and what the appended epilogue does.
 - [references/gotchas.md](references/gotchas.md) collects remote-kernel and marimo-specific pitfalls.

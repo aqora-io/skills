@@ -16,6 +16,16 @@ Unlike a local sandbox, the user sees cells appear in their browser as you creat
 
 ## Marimo
 
+### `code_mode` mutations do not persist to the file
+
+`create_cell`, `edit_cell`, `delete_cell`, and `move_cell` update the kernel's in-memory graph but do not write the notebook `.py` file. Cell outputs broadcast to the browser correctly, so markdown and plots render, but the cell editors keep showing the pre-mutation file contents. Users see rendered outputs overlaid on empty editors and assume the notebook is broken.
+
+Fix: pass `--persist` to `execute-code.py` on every mutation call. See [persisting-cells.md](persisting-cells.md).
+
+### `name="setup"` isolates the cell's scope
+
+A cell created with `name="setup"` becomes a marimo setup cell. Its top-level imports and definitions are not shared with the rest of the notebook. Downstream cells fail with `NameError` even though the setup cell ran without error. For a plain shared-imports cell, use any other name (or no name).
+
 ### `mo.stop()` only gates its own cell
 
 `mo.stop()` halts the cell it lives in. To gate downstream cells behind a `mo.ui.run_button`, the stop cell must export a variable that downstream cells depend on. If stop fires, the variable is never defined, so dependent cells do not run. A bare `mo.stop()` cell with no exports does not prevent downstream cells from executing.

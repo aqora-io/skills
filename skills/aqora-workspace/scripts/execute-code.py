@@ -59,6 +59,44 @@ AQORA_API_DEFAULT = os.environ.get("AQORA_API_URL", "https://aqora.io").rstrip("
 SCRIPT_DIR = Path(__file__).resolve().parent
 LIST_SCRIPT = SCRIPT_DIR / "list-workspaces.sh"
 
+# Appended to user code when --persist is set. Regenerates the notebook .py
+# file from the kernel's current cell graph. code_mode mutations update the
+# kernel in memory but do not touch the file; without this the browser editor
+# shows stale (often empty) cells while outputs still render. Safe to append
+# unconditionally. The try/except keeps a persistence failure from masking
+# the user's own output or return code.
+PERSIST_EPILOGUE = r"""
+# aqora-workspace --persist: regenerate notebook file from kernel state
+try:
+    import re as _aq_re
+    import marimo._code_mode as _aq_cm
+    from marimo._ast.codegen import generate_filecontents as _aq_gfc
+    from marimo._code_mode._context import _cell_names as _aq_names
+
+    _aq_ctx = _aq_cm.get_context()
+    _aq_cells = list(_aq_ctx.cells)
+    _aq_fn = _aq_ctx._kernel.app_metadata.filename
+    with open(_aq_fn) as _aq_f:
+        _aq_orig = _aq_f.read()
+    _aq_hdr = _aq_re.match(r"^(# /// script.*?# ///\n)", _aq_orig, _aq_re.DOTALL)
+    _aq_contents = _aq_gfc(
+        [_c.code or "" for _c in _aq_cells],
+        [_c.name or _aq_names.get(_c.cell_id) or "_" for _c in _aq_cells],
+        [_c.config for _c in _aq_cells],
+        config=_aq_ctx._kernel.app_metadata.app_config,
+        header_comments=_aq_hdr.group(1) if _aq_hdr else None,
+    )
+    if _aq_contents != _aq_orig:
+        with open(_aq_fn, "w") as _aq_f:
+            _aq_f.write(_aq_contents)
+        print(f"[aqora-workspace] persisted {len(_aq_cells)} cells to {_aq_fn}")
+except Exception as _aq_e:
+    import sys as _aq_sys
+    _aq_sys.stderr.write(
+        f"[aqora-workspace] --persist failed: {type(_aq_e).__name__}: {_aq_e}\n"
+    )
+"""
+
 
 def resolve_token(aqora_api: str) -> str:
     """Find a valid aqora access token. See module docstring for order."""
@@ -332,6 +370,18 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         help="Path to a Python file to execute (alternative to -c or stdin).",
     )
+    parser.add_argument(
+        "--persist",
+        action="store_true",
+        help=(
+            "After the user code runs, regenerate the workspace's notebook .py "
+            "file from the kernel's current cell graph. Use this with any call "
+            "that mutates cells via marimo._code_mode (create_cell, edit_cell, "
+            "delete_cell, move_cell). Without it, the browser editor keeps "
+            "showing stale cell contents even though the kernel has been "
+            "updated."
+        ),
+    )
     return parser
 
 
@@ -353,6 +403,8 @@ def main() -> int:
         sys.exit("Error: provide --workspace ID or --url URL.")
 
     code = read_code_from_args(args, [args.file] if args.file else [])
+    if args.persist:
+        code = code.rstrip() + "\n" + PERSIST_EPILOGUE
     try:
         return asyncio.run(stream_execute(runner_url, code, args.session))
     except KeyboardInterrupt:
