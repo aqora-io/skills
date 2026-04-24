@@ -99,10 +99,35 @@ except Exception as _aq_e:
 
 
 def resolve_token(aqora_api: str) -> str:
-    """Find a valid aqora access token. See module docstring for order."""
+    """Find a valid aqora access token.
+
+    Resolution order:
+      1. AQORA_TOKEN env var.
+      2. `aqora auth token` command. Refresh-aware: the CLI transparently
+         refreshes expired access_tokens via the stored refresh_token.
+         Available in aqora-cli versions that ship the `auth` subcommand.
+      3. Direct read of <config_home>/credentials.json. Fallback for older
+         CLIs; does not refresh, so expired tokens surface as 401s.
+    """
     if token := os.environ.get("AQORA_TOKEN"):
         return token
 
+    # Try `aqora auth token` if the CLI is available and recent enough.
+    try:
+        result = subprocess.run(
+            ["aqora", "auth", "token", "--url", aqora_api],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            token = result.stdout.strip()
+            if token:
+                return token
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Fall back to direct credentials file read.
     if config_home := os.environ.get("AQORA_CONFIG_HOME"):
         config_home_path = Path(config_home)
     elif platform.system() == "Darwin":
