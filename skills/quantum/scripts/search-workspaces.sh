@@ -56,7 +56,19 @@ if [[ "$order" != "TRENDING" && "$order" != "CREATED_AT" ]]; then
   exit 1
 fi
 
-# Resolve token from the CLI credentials file if not set
+# Try `aqora auth token` first. This is the refresh-aware path; the CLI
+# transparently refreshes an expired access_token via the refresh_token and
+# prints a fresh one. Available in aqora-cli versions that include the
+# `auth` subcommand; older versions fall through to direct credential-file
+# reading below.
+if [[ -z "$token" ]] && command -v aqora >/dev/null 2>&1; then
+  token="$(aqora auth token --url "$aqora_api" 2>/dev/null || true)"
+fi
+
+# Fall back to reading the credentials file directly (older CLI versions
+# without `aqora auth token`). Known limitation: no refresh, so expired
+# tokens surface as INVALID_AUTHORIZATION errors and the user has to rerun
+# `aqora login`.
 if [[ -z "$token" ]]; then
   if [[ -n "${AQORA_CONFIG_HOME:-}" ]]; then
     config_home="$AQORA_CONFIG_HOME"

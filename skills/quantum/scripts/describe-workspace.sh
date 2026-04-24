@@ -62,7 +62,14 @@ if [[ -z "$owner" || -z "$slug" ]]; then
   exit 1
 fi
 
-# Resolve token from the CLI credentials file if not set
+# Try `aqora auth token` first (refresh-aware path; see search-workspaces.sh
+# for context). Falls through to the credential-file read below on older
+# CLIs.
+if [[ -z "$token" ]] && command -v aqora >/dev/null 2>&1; then
+  token="$(aqora auth token --url "$aqora_api" 2>/dev/null || true)"
+fi
+
+# Fall back to reading the credentials file directly
 if [[ -z "$token" ]]; then
   if [[ -n "${AQORA_CONFIG_HOME:-}" ]]; then
     config_home="$AQORA_CONFIG_HOME"
