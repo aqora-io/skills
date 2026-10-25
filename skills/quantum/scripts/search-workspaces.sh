@@ -3,9 +3,10 @@
 # Thin wrapper over the aqora GraphQL workspaces() query. Emits JSON on stdout.
 #
 # Output shape (one entry per workspace):
-#   { id, slug, name, shortDescription, owner, url, tags, votes }
-# `tags` may be empty for workspaces that were not tagged on publish.
-# `url` is the editor URL for the current viewer (or null if no runner is live).
+#   { id, slug, name, shortDescription, owner, editor_url, viewer_url, tags, votes }
+# `tags` is a list of tag names; it may be empty for workspaces that were not
+# tagged on publish. `editor_url` and `viewer_url` are null unless a runner is
+# live and visible to the caller.
 #
 # Usage:
 #   search-workspaces.sh --search "QAOA"
@@ -21,7 +22,8 @@
 # Auth resolution order:
 #   1. --token TOKEN flag (avoid; visible in ps)
 #   2. AQORA_TOKEN env var (preferred for CI)
-#   3. access_token from the aqora CLI credentials file
+#   3. `aqora auth token` (refresh-aware, on CLIs that ship it)
+#   4. access_token from the aqora CLI credentials file
 #      (written by `aqora login`, located at <config_home>/credentials.json)
 #
 # Custom deployments: set AQORA_API_URL to override the default endpoint.
@@ -35,15 +37,23 @@ tags_csv=""
 first=10
 order="TRENDING"
 
+need_value() {
+  if [[ $# -lt 2 || -z "$2" ]]; then
+    echo "Error: $1 requires a value" >&2
+    exit 1
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --search) search="$2"; shift 2 ;;
-    --tags)   tags_csv="$2"; shift 2 ;;
-    --first)  first="$2"; shift 2 ;;
-    --order)  order="$2"; shift 2 ;;
-    --token)  token="$2"; shift 2 ;;
+    --search) need_value "$@"; search="$2"; shift 2 ;;
+    --tags)   need_value "$@"; tags_csv="$2"; shift 2 ;;
+    --first)  need_value "$@"; first="$2"; shift 2 ;;
+    --order)  need_value "$@"; order="$2"; shift 2 ;;
+    --token)  need_value "$@"; token="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
+      # Print the leading comment block, stopping at the first code line.
+      awk 'NR == 1 { next } !/^#/ { exit } { sub(/^# ?/, ""); print }' "$0"
       exit 0
       ;;
     -*) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -53,6 +63,11 @@ done
 
 if [[ "$order" != "TRENDING" && "$order" != "CREATED_AT" ]]; then
   echo "Invalid --order '$order'. Expected TRENDING or CREATED_AT." >&2
+  exit 1
+fi
+
+if ! [[ "$first" =~ ^[1-9][0-9]*$ ]] || (( first > 100 )); then
+  echo "Invalid --first '$first'. Expected an integer from 1 to 100." >&2
   exit 1
 fi
 
@@ -113,6 +128,8 @@ query='query SearchWorkspaces($first: Int!, $search: String, $tags: [String!], $
       owner { ... on Entity { username } }
       editor { url }
       viewer { url }
+      votes
+      tags(first: 50) { nodes { name } }
     }
   }
 }'
@@ -154,5 +171,7 @@ echo "$response" | jq '.data.workspaces.nodes | map({
   shortDescription,
   owner: (.owner.username // null),
   editor_url: (.editor.url // null),
-  viewer_url: (.viewer.url // null)
+  viewer_url: (.viewer.url // null),
+  tags: [.tags.nodes[]?.name],
+  votes
 })'

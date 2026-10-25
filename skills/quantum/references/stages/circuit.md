@@ -76,28 +76,36 @@ def ghz_qasm(n: int) -> str:
 ```python
 def qft_qasm(n: int, inverse: bool = False) -> str:
     import math
+    # Build the forward QFT as a gate list: H plus controlled phases on each
+    # qubit, then swaps to reverse the qubit order. Treats q[0] as the most
+    # significant bit, so it equals qiskit's QFT with the qubit order reversed.
+    gates = []
+    for i in range(n):
+        gates.append(('h', i))
+        for k, control in enumerate(range(i + 1, n), start=2):
+            gates.append(('cu1', math.pi / 2 ** (k - 1), control, i))
+    for i in range(n // 2):
+        gates.append(('swap', i, n - 1 - i))
+    # The inverse QFT is the same gates in reverse order with negated angles.
+    if inverse:
+        gates = [
+            ('cu1', -g[1], g[2], g[3]) if g[0] == 'cu1' else g
+            for g in reversed(gates)
+        ]
     lines = [
         'OPENQASM 2.0;',
         'include "qelib1.inc";',
         f'qreg q[{n}];',
         f'creg c[{n}];',
     ]
-    pairs = list(range(n))
-    if inverse:
-        pairs.reverse()
-    for i in pairs:
-        lines.append(f'h q[{i}];')
-        for j, target in enumerate(range(i + 1, n), start=2):
-            theta = math.pi / (2 ** (j - 1)) * (-1 if inverse else 1)
-            lines.append(f'cu1({theta}) q[{target}],q[{i}];')
-    # Swap the order of the qubits to match standard QFT convention
-    for i in range(n // 2):
-        j = n - 1 - i
-        lines.extend([
-            f'cx q[{i}],q[{j}];',
-            f'cx q[{j}],q[{i}];',
-            f'cx q[{i}],q[{j}];',
-        ])
+    for g in gates:
+        if g[0] == 'h':
+            lines.append(f'h q[{g[1]}];')
+        elif g[0] == 'cu1':
+            lines.append(f'cu1({g[1]}) q[{g[2]}],q[{g[3]}];')
+        else:
+            a, b = g[1], g[2]
+            lines.extend([f'cx q[{a}],q[{b}];', f'cx q[{b}],q[{a}];', f'cx q[{a}],q[{b}];'])
     for i in range(n):
         lines.append(f'measure q[{i}] -> c[{i}];')
     return '\n'.join(lines)
@@ -113,7 +121,9 @@ def hea_qasm(n_qubits: int, n_layers: int, params: list[float]) -> str:
 
     Total parameter count is n_qubits * 3 * n_layers.
     """
-    assert len(params) == n_qubits * 3 * n_layers
+    expected = n_qubits * 3 * n_layers
+    if len(params) != expected:
+        raise ValueError(f"hea_qasm expects {expected} params, got {len(params)}")
     lines = [
         'OPENQASM 2.0;',
         'include "qelib1.inc";',
@@ -173,8 +183,9 @@ def build_with_pennylane() -> str:
             qml.CNOT(wires=[i, i + 1])
         return [qml.sample(qml.PauliZ(i)) for i in range(4)]
 
-    # pennylane can dump to qasm
-    return circuit.qtape.to_openqasm()
+    # The QNode builds its tape lazily, so circuit.qtape is None until the
+    # circuit runs. qml.to_openqasm constructs the tape and returns QASM.
+    return qml.to_openqasm(circuit)()
 ```
 
 ## Gotchas

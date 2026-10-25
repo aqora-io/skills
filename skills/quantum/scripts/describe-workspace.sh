@@ -21,7 +21,8 @@
 # Auth resolution order:
 #   1. --token TOKEN flag (avoid; visible in ps)
 #   2. AQORA_TOKEN env var (preferred for CI)
-#   3. access_token from the aqora CLI credentials file
+#   3. `aqora auth token` (refresh-aware, on CLIs that ship it)
+#   4. access_token from the aqora CLI credentials file
 
 set -euo pipefail
 
@@ -32,9 +33,15 @@ slug=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --token) token="$2"; shift 2 ;;
+    --token)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "Error: --token requires a value" >&2
+        exit 1
+      fi
+      token="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
+      # Print the leading comment block, stopping at the first code line.
+      awk 'NR == 1 { next } !/^#/ { exit } { sub(/^# ?/, ""); print }' "$0"
       exit 0
       ;;
     -*) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -105,7 +112,10 @@ query='query DescribeWorkspace($owner: String!, $slug: String!) {
     voterCount
     private
     owner { ... on Entity { username displayName } }
-    defaultNotebook
+    overviewNotebook
+    libNotebook
+    votes
+    tags(first: 50) { nodes { name } }
     editor { url command }
     viewer { url command }
   }
@@ -145,7 +155,10 @@ echo "$node" | jq '{
   private,
   owner: (.owner.username // null),
   ownerDisplayName: (.owner.displayName // null),
-  defaultNotebook,
+  overviewNotebook,
+  libNotebook,
+  votes,
+  tags: [.tags.nodes[]?.name],
   editor_url: (.editor.url // null),
   editor_command: (.editor.command // null),
   viewer_url: (.viewer.url // null),

@@ -94,7 +94,7 @@ The seven stages from `SKILL.md`. A workspace can be tagged with more than one i
 
 Every published primitive should carry at least:
 
-- Exactly one `role:*` tag.
+- At least one `role:*` tag. Most primitives have exactly one; use cases that also expose a reusable algorithm can carry two.
 - At least one `stage:*` tag.
 - At least one `framework:*` tag (even if it is `framework:numpy`).
 

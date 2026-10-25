@@ -82,14 +82,21 @@ Use for small parameter spaces (2 to 3 variational parameters) where grid resolu
 **Classical optimizer**:
 
 ```python
+import asyncio
 from scipy.optimize import minimize
 
 def objective(params):
+    # Runs on the worker thread started below, which has no event loop of
+    # its own, so asyncio.run is safe here.
     qasm = build_ansatz_qasm(params)
     counts = asyncio.run(run_simulator(qasm, shots=2048))
     return -expected_value(counts, hamiltonian)
 
-result = minimize(objective, x0=initial_params, method="COBYLA")
+# marimo cells already run inside an event loop, where asyncio.run raises
+# RuntimeError. Run the synchronous optimizer on a worker thread instead.
+result = await asyncio.to_thread(
+    minimize, objective, x0=initial_params, method="COBYLA"
+)
 ```
 
 Use for VQE and larger parameter spaces. COBYLA and SPSA tolerate the shot noise; BFGS and similar gradient methods fail without careful variance reduction.
@@ -109,8 +116,9 @@ def build_qaoa_qasm(
 ) -> str:
     """Build the QAOA circuit for a QUBO problem at depth p_layers.
 
-    Returns OPENQASM 2.0. Uses verbose CZ + H decomposition to give
-    downstream optimizers room to work.
+    Returns OPENQASM 2.0. Each ZZ cost term exp(-i*gamma*w*Z_i*Z_j) is
+    emitted as CX(i,j) RZ(2*gamma*w) CX(i,j), with every CX written in the
+    verbose H CZ H form to give downstream optimizers room to work.
     """
     n = max(max(i, j) for (i, j) in Q) + 1
     lines = [
@@ -128,9 +136,13 @@ def build_qaoa_qasm(
             if i == j:
                 lines.append(f'rz({2 * gamma[p] * w}) q[{i}];')
             else:
-                lines.append(f'cz q[{i}],q[{j}];')
+                # CX(i,j) = H_j CZ(i,j) H_j. CZ and RZ are both diagonal, so
+                # dropping the H gates would cancel the two CZs and leave a
+                # single-qubit rotation instead of the ZZ interaction.
+                cx = [f'h q[{j}];', f'cz q[{i}],q[{j}];', f'h q[{j}];']
+                lines.extend(cx)
                 lines.append(f'rz({2 * gamma[p] * w}) q[{j}];')
-                lines.append(f'cz q[{i}],q[{j}];')
+                lines.extend(cx)
         for i in range(n):
             lines.append(f'rx({2 * beta[p]}) q[{i}];')
     # Measurement

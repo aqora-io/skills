@@ -128,7 +128,7 @@ When you do run on real hardware:
 
 - Queue time can exceed wall-clock patience. Set a timeout on the outer loop.
 - Shot budget is not free. Ask the user before spending thousands of shots.
-- Results always need mitigation. See [stages/mitigation.md] (v0.2) for ZNE, readout correction, and PEC.
+- Results always need mitigation. Error mitigation (ZNE, readout correction, PEC) will be covered in `stages/mitigation.md` in v0.2.
 - Some providers rate-limit circuit depth. Know the ceiling before submitting.
 
 ## Shot budget
