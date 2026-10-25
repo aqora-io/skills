@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #   "httpx>=0.27",
-#   "websockets>=12",
+#   "websockets>=14",
 # ]
 # ///
 """Execute code inside a running aqora workspace's marimo kernel.
@@ -30,7 +30,7 @@ Auth resolution order:
      (written by `aqora login`, located at <config_home>/credentials.json)
 
 Running without uv:
-  pip install httpx>=0.27 websockets>=12
+  pip install httpx>=0.27 websockets>=14
   python execute-code.py ...
 
 Environment:
@@ -58,6 +58,7 @@ import websockets
 from websockets.exceptions import WebSocketException
 
 AQORA_API_DEFAULT = os.environ.get("AQORA_API_URL", "https://aqora.io").rstrip("/")
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 SCRIPT_DIR = Path(__file__).resolve().parent
 LIST_SCRIPT = SCRIPT_DIR / "list-workspaces.sh"
 
@@ -236,9 +237,10 @@ class RunnerAuthError(Exception):
 def pick_live_session(live: dict, file_param: str) -> Optional[str]:
     """Pick the browser session to attach to, or None to open our own.
 
-    Prefer the session editing the same file as the runner URL. Fall back to
-    the only live session. With several unrelated sessions and no match,
-    return None so the caller opens a private session instead of guessing.
+    Only attach to a session editing the same file as the runner URL. With no
+    match (even when a single session for another file is live), return None
+    so the caller opens a private session instead of touching the wrong
+    notebook.
     """
     if not live:
         return None
@@ -250,8 +252,6 @@ def pick_live_session(live: dict, file_param: str) -> Optional[str]:
     ]
     if len(matching) == 1:
         return matching[0]
-    if len(live) == 1:
-        return next(iter(live))
     return None
 
 
@@ -311,7 +311,7 @@ async def wait_for_kernel_ready(ws, timeout: float) -> bool:
             return False
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, WebSocketException):
             return False
         try:
             op = json.loads(raw).get("op")
@@ -353,6 +353,13 @@ async def stream_execute(
     if warn_host:
         warn_non_aqora(runner_url)
     base, runner_access_token, file_param = parse_runner_url(runner_url)
+    parsed_base = urlparse(base)
+    if parsed_base.scheme != "https" and parsed_base.hostname not in LOOPBACK_HOSTS:
+        sys.stderr.write(
+            f"Error: refusing to send the runner token over {parsed_base.scheme}:// "
+            f"to non-loopback host '{parsed_base.hostname}'. Use an https URL.\n"
+        )
+        return 1
     headers = {"Authorization": f"Bearer {runner_access_token}"}
 
     async with httpx.AsyncClient(
@@ -399,7 +406,7 @@ async def stream_execute(
                 additional_headers=list(headers.items()),
                 max_size=None,
             )
-        except (WebSocketException, OSError) as e:
+        except (WebSocketException, OSError, asyncio.TimeoutError) as e:
             sys.stderr.write(f"Error opening WebSocket to runner: {e}\n")
             return 1
 
@@ -407,7 +414,8 @@ async def stream_execute(
             if not await wait_for_kernel_ready(ws, ready_timeout):
                 sys.stderr.write(
                     f"Error: the kernel did not report ready within "
-                    f"{ready_timeout:.0f}s. Check the workspace in the aqora UI.\n"
+                    f"{ready_timeout:.0f}s, or the runner closed the WebSocket. "
+                    "Check the workspace in the aqora UI.\n"
                 )
                 return 1
             drainer = asyncio.create_task(drain(ws))
