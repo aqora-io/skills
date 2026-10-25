@@ -1,0 +1,89 @@
+{
+  "skill_name": "quantum",
+  "description": "Realistic user prompts that should trigger the quantum skill and exercise its decision tree. Run these blind (no skill) to see the baseline, then with the skill installed, then compare. See skill-creator for the full iteration loop.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to solve a MaxCut on this 8-node graph on aqora. Find an existing QAOA workspace if there is one, use it, and show me the best-energy bitstring. Graph edges as (u, v, w) tuples: [(0,1,1.0),(0,2,1.0),(1,3,0.8),(2,3,1.2),(2,4,0.6),(3,5,1.0),(4,5,1.1),(4,6,0.9),(5,7,1.3),(6,7,1.0)]",
+      "expected_output": "Agent searches aqora for a QAOA primitive, finds aqora/portfolio-optimizer or builds inline, runs on a simulator workspace, and reports the best bitstring with its cut energy.",
+      "expectations": [
+        "Uses search-workspaces.sh with role:algorithm or algorithm:qaoa filter",
+        "Introspects a candidate via aq.notebook(...) or describe-workspace.sh before committing",
+        "Composes via aqora_cli.notebook() with defensive error handling",
+        "Returns a bitstring plus cut energy, not raw counts"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "In my stubbi/test workspace, build a QAOA circuit for a 6-node MaxCut at depth p=2, optimize it with pytket and with pyzx separately, run both plus the un-optimized circuit on the pennylane simulator workspace, and give me a three-row table comparing depth, gate count, and expected energy.",
+      "expected_output": "A markdown or dict comparison of three circuit variants (no optimization, pytket, pyzx) each run 2048 shots on aqora/pennylane-simulator, showing depth/gates/energy.",
+      "expectations": [
+        "Builds circuit in verbose decomposition (CZ + H) since it will be optimized",
+        "Calls aqora/gate-optimizer and aqora/pyzx-optimizer via aq.notebook",
+        "Calls aqora/pennylane-simulator three times",
+        "Produces a table or comparable structured output"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Simulate a Bell state with 1000 shots on aqora and show me the counts. Use whatever simulator is fastest.",
+      "expected_output": "Counts approximately {'00': 500, '11': 500}, plus brief commentary.",
+      "expectations": [
+        "Recognizes this is small enough to inline (no cross-workspace call needed), OR uses aqora/numpy-simulator",
+        "Produces valid OPENQASM 2.0 for a Bell state",
+        "Counts are approximately balanced on 00 and 11, with only those two bitstrings appearing"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "My VQE is converging to a local minimum on H2. I'm using a hardware-efficient ansatz with 2 layers. Suggest a fix and implement it in my workspace.",
+      "expected_output": "Agent diagnoses the barren-plateau-or-local-minimum, proposes warm starting from a shallower ansatz, smaller learning rate, or a different optimizer (COBYLA vs SPSA), and implements the change.",
+      "expectations": [
+        "Does not suggest random restart as the primary remedy",
+        "Mentions either warm-start, COBYLA, SPSA, or parameter initialization near identity",
+        "Edits or adds cells in the user's workspace, not just prints code"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "What's the difference between aqora/gate-optimizer and aqora/pyzx-optimizer? When should I prefer each?",
+      "expected_output": "Clear comparison: pytket for general peephole optimization, pyzx for rotation-heavy circuits via ZX calculus, each strong on different circuit shapes.",
+      "expectations": [
+        "Accurate technical description of pytket FullPeepholeOptimise vs pyzx ZX-calculus",
+        "Gives a concrete recommendation per circuit shape (rotation-heavy vs Clifford-heavy)",
+        "Optionally runs describe-workspace.sh on both to ground the answer"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Compile a 10-qubit QFT for IBM Heron's coupling map and tell me the routing overhead (gate count and depth before vs after).",
+      "expected_output": "QFT circuit constructed, aqora/routing-optimizer called with target=\"routing\", before/after stats reported.",
+      "expectations": [
+        "Builds a 10-qubit QFT in QASM 2.0",
+        "Uses aqora/routing-optimizer (or a reasoned inline fallback if unavailable)",
+        "Reports the gate count and depth overhead as numbers"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Find the top three QAOA-related aqora workspaces and tell me which one is the right starting point for portfolio optimization.",
+      "expected_output": "Search results with brief eval, pointing at aqora/portfolio-optimizer as the best fit.",
+      "expectations": [
+        "Uses search-workspaces.sh with algorithm:qaoa or similar tags",
+        "Provides brief per-candidate summary, not just a slug dump",
+        "Explains why the chosen candidate is best, referencing the interface contract or tag match"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "I've written a good little function in my stubbi/test workspace that prepares a Trotterized evolution circuit for a 1D Heisenberg chain. It works. Should I publish it as a workspace primitive? What would I need to do?",
+      "expected_output": "Runs through the promotion checklist, asks about the function's reuse potential, and walks the user through making it publishable.",
+      "expectations": [
+        "References promotion-checklist.md",
+        "Asks whether the function is generic enough to be broadly useful",
+        "Names concrete tags the workspace should carry (role:algorithm or role:circuit, framework:*, algorithm:trotter)",
+        "Does not just say 'yes publish it' without the reusability check"
+      ]
+    }
+  ]
+}
