@@ -12,6 +12,7 @@ All notable changes to this repository are documented here. Format follows [Keep
 - Validation script (`scripts/validate-skills.sh`) and GitHub Actions workflow.
 - Claude Code plugin and marketplace manifests.
 - CLAUDE.md for contributors using Claude Code.
+- Four new authoring references inside the `aqora-workspace` skill: `notebook-structure.md`, `exported-functions.md`, `visualization.md`, `config-files.md`. Complement the existing mechanics references (auth, lifecycle, gotchas, persisting-cells) by documenting how to write a workspace that is readable, reusable, and promotion-ready. Derived from patterns in `workspace-demos/portfolio-optimizer`, `benchmark`, and `pennylane-simulator`.
 
 ### Changed
 
