@@ -4,7 +4,7 @@
 
 ### Network latency adds up
 
-Every `execute-code.py` call is a WebSocket handshake plus an HTTPS round-trip to aqora.io. On a slow link, twenty small calls cost more than one batched call. Batch related work into a single execution when possible.
+Every `execute-code.py` call costs a few HTTPS round-trips to the runner, and opening a private session also waits for the kernel to report ready. On a slow link, twenty small calls cost more than one batched call. Batch related work into a single execution when possible.
 
 ### Connection reset mid-operation
 
@@ -52,11 +52,11 @@ Command-line flags appear in `ps aux`. Pass tokens via `AQORA_TOKEN`, not `--tok
 
 ### Non-aqora URLs
 
-`execute-code.py` warns when pointed at a host that is not `*.aqora.io`, `*.aqora-internal.io`, or a loopback address. A warning you did not expect is a signal to stop and investigate, not a prompt to dismiss.
+`execute-code.py --url` warns when pointed at a host that is not `*.aqora.io`, `*.aqora-internal.io`, `*.kubimo.org` (aqora's runner host), or a loopback address. URLs resolved through `--workspace` come from the aqora API and are not checked. A warning you did not expect is a signal to stop and investigate, not a prompt to dismiss.
 
 ### Token refresh
 
-The stored aqora access token has a short lifetime (roughly 24 hours). The scripts read the stored `access_token` directly and do not trigger refresh. If a call fails with `INVALID_AUTHORIZATION` or HTTP 401, run `aqora login` to mint a fresh one. A follow-up `aqora auth token` subcommand is being added to the CLI to handle refresh transparently.
+The stored aqora access token has a short lifetime (roughly 24 hours). The scripts call `aqora auth token`, which refreshes it transparently on CLIs that ship that subcommand. On older CLIs they read the stored `access_token` directly; if a call then fails with `INVALID_AUTHORIZATION` or HTTP 401, run `aqora login` (or upgrade the CLI).
 
 ## Scripts
 

@@ -61,7 +61,7 @@ bash scripts/list-workspaces.sh --id ws_abc --url-only
 
 Every `execute-code.py` call runs inside the remote marimo kernel. All cell variables are in scope. `print(df.head())` just works. Nothing you define persists between calls, but you can freely introspect notebook state: inspect variables, test snippets, check types and shapes. Use this to explore and validate before committing anything to the notebook, then create cells to persist state and make results visible to the user.
 
-Under the hood, `execute-code.py` opens a short-lived WebSocket to register a session with the runner, POSTs your code to the agent-only `/api/kernel/execute` endpoint, streams results back, and closes. Stdout from the kernel is mirrored to your stdout, stderr to your stderr. All of this is transparent from the skill's point of view: treat the script as "run this code, get its output."
+Under the hood, `execute-code.py` authenticates to the runner with the editor URL's token as a `Bearer` header, attaches to the notebook's live browser session (or opens a short-lived private session over WebSocket when nobody has the notebook open), POSTs your code to the agent-only `/api/kernel/execute` endpoint, and streams results back. Stdout from the kernel is mirrored to your stdout, stderr to your stderr. All of this is transparent from the skill's point of view: treat the script as "run this code, get its output."
 
 To mutate the notebook's dataflow graph, use `marimo._code_mode` and pass `--persist` to the script:
 
@@ -120,7 +120,7 @@ Anywidget state (traitlets) lives outside marimo's reactive graph. To hook a wid
 - **Network round-trips matter.** Unlike a local marimo, every `execute-code.sh` call goes to aqora.io. Batch related operations into a single call when possible.
 - **Workspace sessions can be killed by the platform** for inactivity or resource limits. If execution starts failing with connection errors, check status with `list-workspaces.sh`. See [references/workspace-lifecycle.md](references/workspace-lifecycle.md).
 - **The user is watching live.** Cells appear in the user's browser as you create them. Work in small, reviewable steps. Do not dump a 200-line cell and expect trust.
-- **Every `execute-code.py` call is a full WebSocket plus HTTP round-trip.** The overhead is small per call but not zero. Group related work into a single call when possible.
+- **Every `execute-code.py` call is a few HTTP round-trips, plus a kernel start when no browser session is open.** The overhead is small per call but not zero. Group related work into a single call when possible.
 
 ## References
 
