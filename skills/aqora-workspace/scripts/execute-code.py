@@ -8,9 +8,12 @@
 # ///
 """Execute code inside a running aqora workspace's marimo kernel.
 
-Opens a short-lived WebSocket to register a Marimo-Session-Id with the kernel,
-then POSTs code to the agent-only /api/kernel/execute endpoint and streams the
-result back as Server-Sent Events. Output is decoded and printed to stdout.
+Authenticates to the runner with the editor URL's access token as an
+`Authorization: Bearer` header (the same contract `aqora pair` uses), picks a
+marimo session (the live browser session when the notebook is open, otherwise
+a short-lived private one opened over WebSocket), POSTs code to the agent-only
+/api/kernel/execute endpoint, and streams the result back as Server-Sent
+Events. Output is decoded and printed to stdout.
 
 Usage:
   execute-code.py --workspace ID|SLUG [--session SID] -c "code"
@@ -43,13 +46,12 @@ import asyncio
 import json
 import os
 import platform
-import re
 import subprocess
 import sys
 import uuid
 from pathlib import Path
 from typing import Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 import websockets
@@ -191,10 +193,10 @@ def parse_runner_url(runner_url: str) -> tuple[str, str, str]:
 def warn_non_aqora(url: str) -> None:
     """Print a warning when the target host is not aqora or loopback."""
     host = urlparse(url).hostname or ""
-    trusted = {"aqora.io", "localhost", "127.0.0.1", "::1", "0.0.0.0"}
+    trusted = {"aqora.io", "kubimo.org", "localhost", "127.0.0.1", "::1", "0.0.0.0"}
     if host in trusted:
         return
-    if host.endswith(".aqora.io") or host.endswith(".aqora-internal.io"):
+    if host.endswith((".aqora.io", ".aqora-internal.io", ".kubimo.org")):
         return
     print(
         f"Warning: connecting to non-aqora host '{host}'. Ensure this is trusted.",
@@ -210,111 +212,211 @@ def log_call_if_requested() -> None:
             f.write(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ\n"))
 
 
+async def list_live_sessions(client: httpx.AsyncClient, base: str) -> dict:
+    """Return the runner's live marimo sessions, keyed by session id.
+
+    A session exists while the notebook is open in a browser tab (or while
+    this script holds its own WebSocket open). An empty dict means nobody has
+    the notebook open right now.
+    """
+    response = await client.get(f"{base}/api/sessions")
+    if response.status_code in (401, 403):
+        raise RunnerAuthError(response.status_code, response.text)
+    response.raise_for_status()
+    data = response.json()
+    return data if isinstance(data, dict) else {}
+
+
+class RunnerAuthError(Exception):
+    def __init__(self, status: int, body: str) -> None:
+        super().__init__(f"HTTP {status} from aqora runner: {body}")
+        self.status = status
+
+
+def pick_live_session(live: dict, file_param: str) -> Optional[str]:
+    """Pick the browser session to attach to, or None to open our own.
+
+    Prefer the session editing the same file as the runner URL. Fall back to
+    the only live session. With several unrelated sessions and no match,
+    return None so the caller opens a private session instead of guessing.
+    """
+    if not live:
+        return None
+    matching = [
+        sid
+        for sid, info in live.items()
+        if isinstance(info, dict)
+        and str(info.get("path") or info.get("filename") or "").endswith("/" + file_param)
+    ]
+    if len(matching) == 1:
+        return matching[0]
+    if len(live) == 1:
+        return next(iter(live))
+    return None
+
+
+async def post_execute(
+    client: httpx.AsyncClient, base: str, session_id: str, code: str
+) -> int:
+    """POST code to the agent-only execute endpoint and stream the SSE reply."""
+    try:
+        async with client.stream(
+            "POST",
+            f"{base}/api/kernel/execute",
+            headers={
+                "Content-Type": "application/json",
+                "Marimo-Session-Id": session_id,
+            },
+            json={"code": code},
+            timeout=None,
+        ) as response:
+            if response.status_code >= 400:
+                body = await response.aread()
+                sys.stderr.write(
+                    f"HTTP {response.status_code} from aqora runner: "
+                    f"{body.decode('utf-8', 'replace')}\n"
+                )
+                if response.status_code in (401, 403):
+                    sys.stderr.write(
+                        "Hint: the runner token in the editor URL may be stale. "
+                        "Re-resolve the workspace (or run `aqora login`) and retry.\n"
+                    )
+                return 1
+
+            last_event = ""
+            async for raw_line in response.aiter_lines():
+                line = raw_line.rstrip("\r")
+                if line.startswith("event:"):
+                    last_event = line.split(":", 1)[1].strip()
+                elif line.startswith("data:"):
+                    payload = line.split(":", 1)[1].strip()
+                    if not payload:
+                        continue
+                    handle_sse(last_event, payload)
+                elif line == "":
+                    last_event = ""
+    except httpx.HTTPError as e:
+        sys.stderr.write(f"Error streaming execute response: {e}\n")
+        return 1
+    return 0
+
+
+async def wait_for_kernel_ready(ws, timeout: float) -> bool:
+    """Read WebSocket messages until marimo reports the kernel is ready."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return False
+        try:
+            raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
+        except asyncio.TimeoutError:
+            return False
+        try:
+            op = json.loads(raw).get("op")
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if op == "kernel-ready":
+            return True
+
+
+async def drain(ws) -> None:
+    """Discard WebSocket traffic so the runner never blocks on a full buffer."""
+    try:
+        async for _ in ws:
+            pass
+    except WebSocketException:
+        pass
+
+
 async def stream_execute(
     runner_url: str,
     code: str,
     session: Optional[str],
+    *,
+    warn_host: bool = True,
+    ready_timeout: float = 120.0,
 ) -> int:
-    """Run the full handshake and stream output. Return process exit code."""
-    warn_non_aqora(runner_url)
+    """Run code in the workspace kernel and stream output. Return exit code.
+
+    Auth follows the same contract as `aqora pair`: the runner token from the
+    editor URL goes in an `Authorization: Bearer` header against the bare
+    runner base URL. Code then runs in a marimo session:
+
+      1. --session SID if given (must be live).
+      2. Otherwise the live browser session for the notebook, if any. This
+         is the session the user is looking at, so new cells show up for them.
+      3. Otherwise a private session: open the runner WebSocket, wait for
+         `kernel-ready`, execute, and close the socket again.
+    """
+    if warn_host:
+        warn_non_aqora(runner_url)
     base, runner_access_token, file_param = parse_runner_url(runner_url)
-    session_id = session or str(uuid.uuid4())
+    headers = {"Authorization": f"Bearer {runner_access_token}"}
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-        # Step 1: GET the runner page to set session cookie and fetch server token
+    async with httpx.AsyncClient(
+        follow_redirects=True, timeout=30.0, headers=headers
+    ) as client:
         try:
-            page = await client.get(runner_url)
-            page.raise_for_status()
-        except httpx.HTTPError as e:
-            sys.stderr.write(f"Error fetching runner page: {e}\n")
-            return 1
-
-        match = re.search(
-            r'<marimo-server-token[^>]+data-token="([^"]+)"', page.text
-        )
-        if not match:
+            live = await list_live_sessions(client, base)
+        except RunnerAuthError as e:
+            sys.stderr.write(f"{e}\n")
             sys.stderr.write(
-                "Error: could not find marimo-server-token in runner HTML.\n"
-                "The runner layout may have changed or the URL is not a running workspace.\n"
+                "Hint: the runner token in the editor URL may be stale. "
+                "Re-resolve the workspace (or run `aqora login`) and retry.\n"
             )
             return 1
-        server_token = match.group(1)
+        except (httpx.HTTPError, ValueError) as e:
+            sys.stderr.write(f"Error listing sessions on the runner: {e}\n")
+            return 1
 
-        # Step 2: Open WebSocket to register the session id, keep it open during HTTP POST
-        ws_scheme = "wss" if base.startswith("https") else "ws"
+        if session:
+            if session not in live:
+                listed = ", ".join(live) or "none"
+                sys.stderr.write(
+                    f"Session {session} is not live on the runner (live: {listed}).\n"
+                    "marimo renames a session when the browser reconnects. "
+                    "Retry without --session.\n"
+                )
+                return 1
+            return await post_execute(client, base, session, code)
+
+        if (attached := pick_live_session(live, file_param)) is not None:
+            return await post_execute(client, base, attached, code)
+
+        # No browser session to attach to: open a private one.
+        session_id = f"s_{uuid.uuid4().hex[:12]}"
+        parsed = urlparse(base)
+        ws_scheme = "wss" if parsed.scheme == "https" else "ws"
         ws_url = (
-            f"{ws_scheme}://{urlparse(base).netloc}{urlparse(base).path.rstrip('/')}/ws"
-            f"?session_id={session_id}"
-            f"&file={file_param}"
-            f"&access_token={runner_access_token}"
+            f"{ws_scheme}://{parsed.netloc}{parsed.path}/ws"
+            f"?session_id={quote(session_id)}&file={quote(file_param)}"
         )
-
-        cookies_header = "; ".join(f"{n}={v}" for n, v in client.cookies.items())
-        ws_headers = [("Cookie", cookies_header)] if cookies_header else []
-
         try:
             ws = await websockets.connect(
                 ws_url,
-                additional_headers=ws_headers,
+                additional_headers=list(headers.items()),
+                max_size=None,
             )
-        except WebSocketException as e:
+        except (WebSocketException, OSError) as e:
             sys.stderr.write(f"Error opening WebSocket to runner: {e}\n")
             return 1
 
         try:
-            # Wait briefly for marimo to emit its initial handshake message
-            try:
-                await asyncio.wait_for(ws.recv(), timeout=5.0)
-            except asyncio.TimeoutError:
-                pass
-
-            # Step 3: POST code to the agent-only execute endpoint, stream SSE
-            cookies_dict = {n: v for n, v in client.cookies.items()}
-            try:
-                async with client.stream(
-                    "POST",
-                    f"{base}/api/kernel/execute",
-                    headers={
-                        "Content-Type": "application/json",
-                        "Marimo-Server-Token": server_token,
-                        "Marimo-Session-Id": session_id,
-                    },
-                    json={"code": code},
-                    cookies=cookies_dict,
-                    timeout=None,
-                ) as response:
-                    if response.status_code >= 400:
-                        body = await response.aread()
-                        sys.stderr.write(
-                            f"HTTP {response.status_code} from aqora runner: "
-                            f"{body.decode('utf-8', 'replace')}\n"
-                        )
-                        if response.status_code in (401, 403):
-                            sys.stderr.write(
-                                "Hint: if your aqora session is stale, run "
-                                "`aqora login` and retry.\n"
-                            )
-                        return 1
-
-                    last_event = ""
-                    async for raw_line in response.aiter_lines():
-                        line = raw_line.rstrip("\r")
-                        if line.startswith("event:"):
-                            last_event = line.split(":", 1)[1].strip()
-                        elif line.startswith("data:"):
-                            payload = line.split(":", 1)[1].strip()
-                            if not payload:
-                                continue
-                            handle_sse(last_event, payload)
-                        elif line == "":
-                            last_event = ""
-            except httpx.HTTPError as e:
-                sys.stderr.write(f"Error streaming execute response: {e}\n")
+            if not await wait_for_kernel_ready(ws, ready_timeout):
+                sys.stderr.write(
+                    f"Error: the kernel did not report ready within "
+                    f"{ready_timeout:.0f}s. Check the workspace in the aqora UI.\n"
+                )
                 return 1
+            drainer = asyncio.create_task(drain(ws))
+            try:
+                return await post_execute(client, base, session_id, code)
+            finally:
+                drainer.cancel()
         finally:
             await ws.close()
-
-    return 0
 
 
 def handle_sse(event: str, data: str) -> None:
@@ -379,7 +481,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--session",
-        help="Override the generated Marimo-Session-Id. Rarely needed.",
+        help=(
+            "Target a specific live marimo session (see the runner's "
+            "/api/sessions). By default the script attaches to the browser "
+            "session for the notebook, or opens a private session when none "
+            "is open."
+        ),
     )
     parser.add_argument(
         "--token",
@@ -420,10 +527,14 @@ def main() -> int:
 
     resolve_token(AQORA_API_DEFAULT)
 
+    # URLs resolved through the aqora API point at aqora's own runner hosts,
+    # which are not always under aqora.io. Only warn for hand-supplied URLs.
+    warn_host = True
     if args.url:
         runner_url = args.url
     elif args.workspace:
         runner_url = resolve_workspace_url(args.workspace)
+        warn_host = False
     else:
         sys.exit("Error: provide --workspace ID or --url URL.")
 
@@ -431,7 +542,9 @@ def main() -> int:
     if args.persist:
         code = code.rstrip() + "\n" + PERSIST_EPILOGUE
     try:
-        return asyncio.run(stream_execute(runner_url, code, args.session))
+        return asyncio.run(
+            stream_execute(runner_url, code, args.session, warn_host=warn_host)
+        )
     except KeyboardInterrupt:
         return 130
 

@@ -62,4 +62,4 @@ If a call still fails with a 401 or "session not found" error, the refresh token
 
 ## Non-Aqora Hosts
 
-`execute-code.py` prints a warning when the target URL is not `*.aqora.io`, `*.aqora-internal.io`, or a loopback address. This is a safety check against pointing the skill at untrusted infrastructure. An unexpected warning is a signal to stop and investigate, not to dismiss.
+`execute-code.py --url` prints a warning when the target URL is not `*.aqora.io`, `*.aqora-internal.io`, `*.kubimo.org` (aqora's runner host), or a loopback address. URLs resolved through `--workspace` come from the aqora API and skip the check. This is a safety check against pointing the skill at untrusted infrastructure. An unexpected warning is a signal to stop and investigate, not to dismiss.
